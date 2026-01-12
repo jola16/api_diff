@@ -1,6 +1,6 @@
 # API Diff
 
-A Python script to compare API responses between two endpoints based on configurable parameters. It fetches data from old and new APIs, computes differences using DeepDiff, and saves the results to an Excel file.
+A Python script to compare API responses between two endpoints based on configurable parameters. It fetches data from old and new APIs, computes differences using DeepDiff, and saves the results to the specified Excel file (default: output/api_diff.xlsx).
 
 ## Installation
 
@@ -29,14 +29,30 @@ Use `--debug` for detailed logging:
 python api_diff.py --config config/api_diff_config_SAMPLE.yaml --debug
 ```
 
+Specify a custom output file (default: output/api_diff.xlsx):
+
+```bash
+python api_diff.py --config config/api_diff_config_SAMPLE.yaml --output my_results.xlsx
+```
+
 ## Configuration
 
-Create a YAML config file based on `config/api_diff_config_SAMPLE.yaml`. It should include:
+1. Copy the sample config file as a template:
+   ```bash
+   cp config/api_diff_config_SAMPLE.yaml config/api_diff_config.yaml
+   ```
 
-- API endpoints (old and new)
-- Headers
-- Rate limiting
-- Parameter configurations (from files, values, or single values)
+2. Edit `config/api_diff_config.yaml` with your actual:
+   - API endpoints (old and new)
+   - Authentication headers
+   - Rate limiting settings
+   - Parameter configurations (from files, values, or single values)
+
+**Note:** Config files in `config/` are gitignored (except the SAMPLE file) to protect sensitive data.
+
+**Note:** Source file paths in the config are relative to the config file's directory.
+
+**Note:** Output files in `output/` are gitignored to protect potentially sensitive data.
 
 ## Dependencies
 

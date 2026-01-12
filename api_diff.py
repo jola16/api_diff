@@ -2,7 +2,7 @@
 
 This script compares API responses between two endpoints based on configurable parameters.
 It fetches data from old and new APIs, computes differences using DeepDiff,
-and saves the results to an Excel file.
+and saves the results to the specified Excel file.
 
 Helper functions are in api_diff_helpers.py.
 """
@@ -32,14 +32,19 @@ class ArgumentParserWithHelp(argparse.ArgumentParser):
 def main() -> None:
     """Compare API responses."""
     parser = ArgumentParserWithHelp(description="Compare API responses for different model IDs.")
-    parser.add_argument("--config", required=True, help="Path to the YAML config file.")
+    parser.add_argument("--config", required=True, help="Path to the YAML config file (e.g., config/api_diff_config.yaml). See config/api_diff_config_SAMPLE.yaml for a template.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
+    parser.add_argument("--output", "-o", default="output/api_diff.xlsx", help="Path to the output Excel file. Default: output/api_diff.xlsx")
     args = parser.parse_args()
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
     config: dict[str, Any] = yaml.safe_load(Path(args.config).read_text())
+    config_dir = Path(args.config).parent
 
     @sleep_and_retry
     @limits(calls=config['rate_limit_calls'], period=config['rate_limit_period'])
@@ -51,7 +56,8 @@ def main() -> None:
     param_lists: list[list[str]] = []
     for p in config['param_config']:
         if "source" in p:
-            with Path(p["source"]).open(encoding="utf-8") as f:
+            source_path = config_dir / p["source"]
+            with source_path.open(encoding="utf-8") as f:
                 param_lists.append([line.strip() for line in f if line.strip()])
         elif "values" in p:
             param_lists.append(p["values"])
@@ -77,7 +83,7 @@ def main() -> None:
         else:
             logger.info("%s: No diff", "-".join(str(v) for v in combo))
 
-    api_diff_helpers.save_to_excel(results)
+    api_diff_helpers.save_to_excel(results, str(output_path))
 
 
 if __name__ == "__main__":
