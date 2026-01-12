@@ -1,0 +1,29 @@
+old_api:
+  url: "https://sample-api.example.com/old-endpoint"
+  headers:
+    Authorization: "Bearer sample-token-123"
+
+new_api:
+  url: "https://sample-api.example.com/new-endpoint"
+  headers:
+    Authorization: "Bearer sample-token-456"
+
+rate_limit_calls: 10
+rate_limit_period: 1
+
+param_config:
+  - name: market_id
+    api_name: market
+    source: sample_market_ids.csv
+  - name: customer_type
+    api_name: customer
+    values: ["consumer", "business"]
+  - name: sales_channel
+    api_name: saleschannel
+    values: ["online", "retail"]
+  - name: model_id
+    api_name: modelId
+    source: sample_model_ids.csv
+  - name: sales_date
+    api_name: salesdate
+    value: 1640995200

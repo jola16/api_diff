@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D203",    # Incompatible with D211 (no blank line before class)
+    "D213",    # Multi-line docstring summary should start at second line
+    "I001",    # Import sorting (handled by isort)
+    "DTZ005",  # Datetime timezone warnings
+    "TRY300",  # Try/else conflicts
+    "T201",    # Print statements allowed (used for timing reports)
+    "COM812",  # Conflicts with formatter (trailing commas)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Disable import warnings for dev/ scripts since sys.path modification is necessary
+"dev/*.py" = ["E402", "F401"]  # E402: wrong-import-position, F401: import-error
+#    "E",    # PEP 8 style errors (pycodestyle)
+#    "F",    # Pyflakes
+#    "C90",  # mccabe (complexity)
+#    "E501",  # check long lines
+#    # add other codes as desired
+
+[tool.ruff.lint.isort]
+# Use pylint-compatible import order
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+known-first-party = ["browser_screenshot", "cast_to_nesthub"]
