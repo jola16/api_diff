@@ -24,57 +24,85 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 class ArgumentParserWithHelp(argparse.ArgumentParser):
-    def error(self, message):
+    """Argument parser that prints help on error."""
+
+    def error(self, _message: str) -> None:
+        """Override to print help on error."""
         self.print_help()
         self.exit(2)
 
 
-def main() -> None:
-    """Compare API responses."""
-    parser = ArgumentParserWithHelp(description="Compare API responses for different model IDs.")
-    parser.add_argument("--config", required=True, help="Path to the YAML config file (e.g., config/api_diff_config.yaml). See config/api_diff_config_SAMPLE.yaml for a template.")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
-    parser.add_argument("--output", "-o", default="output/api_diff.xlsx", help="Path to the output Excel file. Default: output/api_diff.xlsx")
-    args = parser.parse_args()
-
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
-
-    config: dict[str, Any] = yaml.safe_load(Path(args.config).read_text())
-    config_dir = Path(args.config).parent
-
-    @sleep_and_retry
-    @limits(calls=config['rate_limit_calls'], period=config['rate_limit_period'])
-    def fetch(base_url: str, headers: dict[str, str], **params: Any) -> dict[str, Any]:
-        return api_diff_helpers.fetch(base_url, headers, **params)
-
-    results: list[dict[str, Any]] = []
-
+def build_param_lists(config: dict[str, Any], config_path: Path) -> list[list[str]]:
+    """Build parameter lists from config."""
     param_lists: list[list[str]] = []
-    for p in config['param_config']:
+    for p in config["param_config"]:
         if "source" in p:
-            source_path = config_dir / p["source"]
-            with source_path.open(encoding="utf-8") as f:
-                param_lists.append([line.strip() for line in f if line.strip()])
+            source_path = config_path.parent / p["source"]
+            lines = source_path.read_text(encoding="utf-8").splitlines()
+            param_lists.append([line.strip() for line in lines if line.strip()])
         elif "values" in p:
             param_lists.append(p["values"])
         elif "value" in p:
             param_lists.append([str(p["value"])])
         else:
-            raise ValueError(f"Parameter {p.get('name', 'unknown')} must have 'source', 'values', or 'value'")
+            msg = f"Parameter {p.get('name', 'unknown')} must have 'source', 'values', or 'value'"
+            raise ValueError(msg)
+    return param_lists
+
+
+def main() -> None:
+    """Compare API responses."""
+    parser = ArgumentParserWithHelp(description="Compare API responses for different model IDs.")
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to the YAML config file (e.g., config/api_diff_config.yaml). "
+        "See config/api_diff_config_SAMPLE.yaml for a template.",
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
+    parser.add_argument(
+        "--output", "-o", default="output/api_diff.xlsx",
+        help="Path to the output Excel file. Default: output/api_diff.xlsx"
+    )
+    args = parser.parse_args()
+
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    config: dict[str, Any] = yaml.safe_load(
+        Path(args.config).read_text(encoding="utf-8")
+    )
+
+    @sleep_and_retry
+    @limits(calls=config["rate_limit_calls"], period=config["rate_limit_period"])
+    def fetch(base_url: str, headers: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
+        return api_diff_helpers.fetch(base_url, headers, params)
+
+    results: list[dict[str, Any]] = []
+
+    param_lists = build_param_lists(config, Path(args.config))
 
     for combo in itertools.product(*param_lists):
         api_params: dict[str, Any] = {
             p.get("api_name", p["name"]): v
-            for p, v in zip(config['param_config'], combo)
+            for p, v in zip(config["param_config"], combo, strict=True)
         }
-        old: dict[str, Any] = fetch(config['old_api']['url'], config['old_api']['headers'], **api_params)
-        new: dict[str, Any] = fetch(config['new_api']['url'], config['new_api']['headers'], **api_params)
+        old: dict[str, Any] = fetch(
+            config["old_api"]["url"],
+            config["old_api"]["headers"],
+            api_params
+        )
+        new: dict[str, Any] = fetch(
+            config["new_api"]["url"],
+            config["new_api"]["headers"],
+            api_params
+        )
         diff = DeepDiff(old, new, ignore_order=True)
-        result: dict[str, Any] = {p["name"]: v for p, v in zip(config['param_config'], combo)}
+        result: dict[str, Any] = {
+            p["name"]: v for p, v in zip(config["param_config"], combo, strict=True)
+        }
         result["has_diff"] = bool(diff)
         result["diff"] = str(diff) if diff else ""
         results.append(result)
@@ -83,7 +111,7 @@ def main() -> None:
         else:
             logger.info("%s: No diff", "-".join(str(v) for v in combo))
 
-    api_diff_helpers.save_to_excel(results, str(output_path))
+    api_diff_helpers.save_to_excel(results, args.output)
 
 
 if __name__ == "__main__":

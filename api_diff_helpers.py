@@ -31,7 +31,7 @@ def save_to_excel(results: list[dict[str, Any]], filename: str = "api_diff_resul
     # Write headers
     headers = list(results[0].keys())
     for col_num, header in enumerate(headers, 1):
-        ws.cell(row=1, column=col_num, value=header.replace('_', ' ').title())
+        ws.cell(row=1, column=col_num, value=header.replace("_", " ").title())
 
     # Write data
     for row_num, result in enumerate(results, 2):
@@ -39,7 +39,7 @@ def save_to_excel(results: list[dict[str, Any]], filename: str = "api_diff_resul
             ws.cell(row=row_num, column=col_num, value=result[header])
 
     # Create table
-    last_col = chr(ord('A') + len(headers) - 1)
+    last_col = chr(ord("A") + len(headers) - 1)
     tab = Table(
         displayName="APIDiffTable",
         ref=f"A1:{last_col}{len(results)+1}",
@@ -54,10 +54,12 @@ def save_to_excel(results: list[dict[str, Any]], filename: str = "api_diff_resul
     logger.info("Saved results to %s", filename)
 
 
-def fetch(base_url: str, headers: dict[str, str], **params: Any) -> dict[str, Any]:
+def fetch(base_url: str, headers: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
     """Fetch data from API for given base URL and parameters."""
     try:
-        response: requests.Response = requests.get(base_url, headers=headers, params=params, timeout=10)
+        response: requests.Response = requests.get(
+            base_url, headers=headers, params=params, timeout=10
+        )
         logger.debug("Fetching %s with params %s", base_url, params)
         status_phrase = HTTPStatus(response.status_code).phrase
         logger.debug("Status: %s %s", response.status_code, status_phrase)
