@@ -12,19 +12,16 @@ new_api:
 rate_limit_calls: 10
 rate_limit_period: 1
 
-param_config:
-  - name: market_id
-    api_name: market
-    source: sample_market_ids.csv
-  - name: customer_type
-    api_name: customer
-    values: ["consumer", "business"]
-  - name: sales_channel
-    api_name: saleschannel
-    values: ["online", "retail"]
-  - name: model_id
-    api_name: modelId
-    source: sample_model_ids.csv
-  - name: sales_date
-    api_name: salesdate
-    value: 1640995200
+csv_file: test_data.csv
+
+param_mapping:
+  - csv_column: market_id
+    request_param: market
+  - csv_column: customer_type
+    request_param: customer
+  - csv_column: sales_channel
+    request_param: saleschannel
+  - csv_column: model_id
+    request_param: modelId
+  - csv_column: sales_date
+    request_param: salesdate

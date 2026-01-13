@@ -8,6 +8,7 @@ Helper functions are in api_diff_helpers.py.
 """
 
 import argparse
+import csv
 import itertools
 import logging
 from pathlib import Path
@@ -52,7 +53,7 @@ class ArgumentParserWithHelp(argparse.ArgumentParser):
 def build_param_lists(config: dict[str, Any], config_path: Path) -> list[list[str]]:
     """Build parameter lists from config."""
     param_lists: list[list[str]] = []
-    for p in config["param_config"]:
+    for p in config["param_mapping"]:
         if "source" in p:
             source_path = config_path.parent / p["source"]
             lines = source_path.read_text(encoding="utf-8").splitlines()
@@ -62,7 +63,7 @@ def build_param_lists(config: dict[str, Any], config_path: Path) -> list[list[st
         elif "value" in p:
             param_lists.append([str(p["value"])])
         else:
-            msg = f"Parameter {p.get('name', 'unknown')} must have 'source', 'values', or 'value'"
+            msg = f"Parameter {p.get('csv_column', 'unknown')} must have 'source', 'values', or 'value'"
             raise ValueError(msg)
     return param_lists
 
@@ -99,52 +100,109 @@ def main() -> None:
 
     results: list[dict[str, Any]] = []
 
-    param_lists = build_param_lists(config, Path(args.config))
+    if "csv_file" in config:
+        # New CSV-based mode
+        csv_path = Path(args.config).parent / config["csv_file"]
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            sample = f.read(1024)
+            f.seek(0)
+            sniffer = csv.Sniffer()
+            try:
+                delimiter = sniffer.sniff(sample, delimiters=',;\t').delimiter
+            except csv.Error:
+                delimiter = ','
+            reader = csv.DictReader(f, delimiter=delimiter)
+            test_cases = list(reader)
+        total_diffs_to_run = len(test_cases)
+        logger.info("Total test cases: %d", total_diffs_to_run)
 
-    total_diffs_to_run = 1
-    for lst in param_lists:
-        total_diffs_to_run *= len(lst)
-    logger.info("Total number of diffs to run: %d", total_diffs_to_run)
+        diff_count = 0
+        for row in test_cases:
+            api_params: dict[str, Any] = {
+                p["request_param"]: row[p["csv_column"]]
+                for p in config["param_mapping"]
+            }
+            old_method = config["old_api"].get("request_method", "GET")
+            new_method = config["new_api"].get("request_method", "GET")
+            old: dict[str, Any] = fetch(
+                config["old_api"]["url"],
+                method=old_method,
+                params=api_params,
+                headers=config["old_api"]["headers"]
+            )
+            new: dict[str, Any] = fetch(
+                config["new_api"]["url"],
+                method=new_method,
+                params=api_params,
+                headers=config["new_api"]["headers"]
+            )
+            logger.debug("Old: %s", old)
+            logger.debug("New: %s", new)
+            diff = DeepDiff(old, new, ignore_order=True)
+            result: dict[str, Any] = {
+                p["csv_column"]: row[p["csv_column"]] for p in config["param_mapping"]
+            }
+            result["has_diff"] = bool(diff)
+            result["has_data"] = not is_empty_json(old) or not is_empty_json(new)
+            result["diff"] = str(diff) if diff else ""
+            results.append(result)
+            if diff:
+                diff_count += 1
+                if diff_count % 1000 == 0:
+                    api_diff_helpers.save_to_excel(results, args.output)
+                    logger.info("Saved intermediate results after %d diffs of %d", diff_count, total_diffs_to_run)
+            if diff:
+                logger.info("%s: %s", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), diff)
+            else:
+                logger.info("%s: No diff, has_data=%s", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), result["has_data"])
+    else:
+        # Legacy permutation mode
+        param_lists = build_param_lists(config, Path(args.config))
 
-    diff_count = 0
-    for combo in itertools.product(*param_lists):
-        api_params: dict[str, Any] = {
-            p.get("api_name", p["name"]): v
-            for p, v in zip(config["param_config"], combo, strict=True)
-        }
-        old_method = config["old_api"].get("request_method", "GET")
-        new_method = config["new_api"].get("request_method", "GET")
-        old: dict[str, Any] = fetch(
-            config["old_api"]["url"],
-            method=old_method,
-            params=api_params,
-            headers=config["old_api"]["headers"]
-        )
-        new: dict[str, Any] = fetch(
-            config["new_api"]["url"],
-            method=new_method,
-            params=api_params,
-            headers=config["new_api"]["headers"]
-        )
-        logger.debug("Old: %s", old)
-        logger.debug("New: %s", new)
-        diff = DeepDiff(old, new, ignore_order=True)
-        result: dict[str, Any] = {
-            p["name"]: v for p, v in zip(config["param_config"], combo, strict=True)
-        }
-        result["has_diff"] = bool(diff)
-        result["has_data"] = not is_empty_json(old) or not is_empty_json(new)
-        result["diff"] = str(diff) if diff else ""
-        results.append(result)
-        if diff:
-            diff_count += 1
-            if diff_count % 1000 == 0:
-                api_diff_helpers.save_to_excel(results, args.output)
-                logger.info("Saved intermediate results after %d diffs of %d", diff_count, total_diffs_to_run)
-        if diff:
-            logger.info("%s: %s", "-".join(str(v) for v in combo), diff)
-        else:
-            logger.info("%s: No diff, has_data=%s", "-".join(str(v) for v in combo), result["has_data"])
+        total_diffs_to_run = 1
+        for lst in param_lists:
+            total_diffs_to_run *= len(lst)
+        logger.info("Total number of diffs to run: %d", total_diffs_to_run)
+
+        diff_count = 0
+        for combo in itertools.product(*param_lists):
+            api_params: dict[str, Any] = {
+                p["request_param"]: v
+                for p, v in zip(config["param_mapping"], combo, strict=True)
+            }
+            old_method = config["old_api"].get("request_method", "GET")
+            new_method = config["new_api"].get("request_method", "GET")
+            old: dict[str, Any] = fetch(
+                config["old_api"]["url"],
+                method=old_method,
+                params=api_params,
+                headers=config["old_api"]["headers"]
+            )
+            new: dict[str, Any] = fetch(
+                config["new_api"]["url"],
+                method=new_method,
+                params=api_params,
+                headers=config["new_api"]["headers"]
+            )
+            logger.debug("Old: %s", old)
+            logger.debug("New: %s", new)
+            diff = DeepDiff(old, new, ignore_order=True)
+            result: dict[str, Any] = {
+                p["csv_column"]: v for p, v in zip(config["param_mapping"], combo, strict=True)
+            }
+            result["has_diff"] = bool(diff)
+            result["has_data"] = not is_empty_json(old) or not is_empty_json(new)
+            result["diff"] = str(diff) if diff else ""
+            results.append(result)
+            if diff:
+                diff_count += 1
+                if diff_count % 1000 == 0:
+                    api_diff_helpers.save_to_excel(results, args.output)
+                    logger.info("Saved intermediate results after %d diffs of %d", diff_count, total_diffs_to_run)
+            if diff:
+                logger.info("%s: %s", "-".join(str(v) for v in combo), diff)
+            else:
+                logger.info("%s: No diff, has_data=%s", "-".join(str(v) for v in combo), result["has_data"])
 
     api_diff_helpers.save_to_excel(results, args.output)
 

@@ -40,20 +40,21 @@ python api_diff.py --config config/api_diff_config_SAMPLE.yaml --output my_resul
 ## Configuration
 
 1. Copy the sample config file as a template:
-   ```bash
-   cp config/api_diff_config_SAMPLE.yaml config/api_diff_config.yaml
-   ```
+    ```bash
+    cp config/api_diff_config_SAMPLE.yaml config/api_diff_config.yaml
+    ```
 
 2. Edit `config/api_diff_config.yaml` with your actual:
-    - API endpoints (old and new)
-    - Request method (optional, default GET) for old_api and new_api
-    - Authentication headers (optional)
-    - Rate limiting settings
-    - Parameter configurations (from files, values, or single values)
+     - API endpoints (old and new)
+     - Request method (optional, default GET) for old_api and new_api
+     - Authentication headers (optional)
+     - Rate limiting settings
+     - CSV file path (relative to config directory) containing test cases
+     - Parameter configurations with column mappings
 
 **Note:** Config files in `config/` are gitignored (except the SAMPLE file) to protect sensitive data.
 
-**Note:** Source file paths in the config are relative to the config file's directory.
+**Note:** CSV file paths in the config are relative to the config file's directory.
 
 **Note:** Output files in `output/` are gitignored to protect potentially sensitive data.
 
@@ -63,6 +64,10 @@ python api_diff.py --config config/api_diff_config_SAMPLE.yaml --output my_resul
 - ratelimit
 - openpyxl
 - pyyaml
+
+## Utilities
+
+- `utils/create_test_data.py`: Helper script to generate CSV test data from parameter configurations. Run with `--config utils/create_test_data.yaml --output config/test_data.csv` for example.
 
 ## License
 
