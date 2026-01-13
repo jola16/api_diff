@@ -1,0 +1,16 @@
+param_config:
+  - name: market_id
+    api_name: market
+    source: create_test_data_SAMPLE_market_ids.csv
+  - name: customer_type
+    api_name: customer
+    values: ["consumer", "business"]
+  - name: sales_channel
+    api_name: saleschannel
+    values: ["online", "retail"]
+  - name: model_id
+    api_name: modelId
+    source: create_test_data_SAMPLE_model_ids.csv
+  - name: sales_date
+    api_name: salesdate
+    value: 1640995200
