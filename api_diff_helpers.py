@@ -38,6 +38,19 @@ def save_to_excel(results: list[dict[str, Any]], filename: str = "api_diff_resul
         for col_num, header in enumerate(headers, 1):
             ws.cell(row=row_num, column=col_num, value=result[header])
 
+    # Autosize columns
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter  # Get the column name
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        ws.column_dimensions[column].width = adjusted_width
+
     # Create table
     last_col = chr(ord("A") + len(headers) - 1)
     tab = Table(
