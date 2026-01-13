@@ -9,12 +9,12 @@ Helper functions are in api_diff_helpers.py.
 
 import argparse
 import csv
-import itertools
 import logging
 from pathlib import Path
 from typing import Any
-import yaml
+from concurrent.futures import ThreadPoolExecutor
 
+import yaml
 from deepdiff import DeepDiff
 from ratelimit import limits, sleep_and_retry
 
@@ -68,6 +68,38 @@ def build_param_lists(config: dict[str, Any], config_path: Path) -> list[list[st
     return param_lists
 
 
+def process_row(row: dict[str, Any], config: dict[str, Any], fetch_func) -> dict[str, Any]:
+    """Process a single row: fetch from both APIs and compute diff."""
+    api_params: dict[str, Any] = {
+        p["request_param"]: row[p["csv_column"]]
+        for p in config["param_mapping"]
+    }
+    old_method = config["old_api"].get("request_method", "GET")
+    new_method = config["new_api"].get("request_method", "GET")
+    old: dict[str, Any] = fetch_func(
+        config["old_api"]["url"],
+        method=old_method,
+        params=api_params,
+        headers=config["old_api"]["headers"]
+    )
+    new: dict[str, Any] = fetch_func(
+        config["new_api"]["url"],
+        method=new_method,
+        params=api_params,
+        headers=config["new_api"]["headers"]
+    )
+    logger.debug("Old: %s", old)
+    logger.debug("New: %s", new)
+    diff = DeepDiff(old, new, ignore_order=True)
+    result: dict[str, Any] = {
+        p["csv_column"]: row[p["csv_column"]] for p in config["param_mapping"]
+    }
+    result["has_diff"] = bool(diff)
+    result["has_data"] = not is_empty_json(old) or not is_empty_json(new)
+    result["diff"] = str(diff) if diff else ""
+    return result
+
+
 def main() -> None:
     """Compare API responses."""
     parser = ArgumentParserWithHelp(description="Compare API responses for different model IDs.")
@@ -95,10 +127,14 @@ def main() -> None:
 
     @sleep_and_retry
     @limits(calls=config["rate_limit_calls"], period=config["rate_limit_period"])
-    def fetch(base_url: str, *, method: str = "GET", params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+    def fetch(base_url: str, *, method: str = "GET", params: dict[str, Any] | None = None,
+              headers: dict[str, str] | None = None) -> dict[str, Any]:
         return api_diff_helpers.fetch(base_url, method=method, params=params, headers=headers)
 
     results: list[dict[str, Any]] = []
+
+    max_concurrent_requests = config.get("max_concurrent_requests", 1)
+    logger.info("Max concurrent request: %d", max_concurrent_requests)
 
     if "csv_file" in config:
         # New CSV-based mode
@@ -114,49 +150,27 @@ def main() -> None:
             reader = csv.DictReader(f, delimiter=delimiter)
             test_cases = list(reader)
         rows_to_run = len(test_cases)
-        logger.info("Number of rows to run: %d", rows_to_run)
+        logger.debug("Number of rows to run: %d", rows_to_run)
 
         row_count = 0
         diff_count = 0
         try:
-            for row in test_cases:
-                api_params: dict[str, Any] = {
-                    p["request_param"]: row[p["csv_column"]]
-                    for p in config["param_mapping"]
-                }
-                old_method = config["old_api"].get("request_method", "GET")
-                new_method = config["new_api"].get("request_method", "GET")
-                old: dict[str, Any] = fetch(
-                    config["old_api"]["url"],
-                    method=old_method,
-                    params=api_params,
-                    headers=config["old_api"]["headers"]
-                )
-                new: dict[str, Any] = fetch(
-                    config["new_api"]["url"],
-                    method=new_method,
-                    params=api_params,
-                    headers=config["new_api"]["headers"]
-                )
-                logger.debug("Old: %s", old)
-                logger.debug("New: %s", new)
-                diff = DeepDiff(old, new, ignore_order=True)
-                result: dict[str, Any] = {
-                    p["csv_column"]: row[p["csv_column"]] for p in config["param_mapping"]
-                }
-                result["has_diff"] = bool(diff)
-                result["has_data"] = not is_empty_json(old) or not is_empty_json(new)
-                result["diff"] = str(diff) if diff else ""
-                results.append(result)
-                if diff:
-                    diff_count += 1
-                    logger.info("%s: %s. %d diffs found. Row %d of %d", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), diff, diff_count, row_count, rows_to_run)
-                else:
-                    logger.info("%s: No diff, has_data=%s. %d diffs found. Row %d of %d", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), result["has_data"], diff_count, row_count, rows_to_run)
-                if row_count % 1000 == 0:
-                    api_diff_helpers.save_to_excel(results, args.output)
-                    logger.info("Saved intermediate results. %d diffs found. Row %d of %d", diff_count, row_count, rows_to_run)
-                row_count += 1
+            for i in range(0, len(test_cases), max_concurrent_requests):
+                batch = test_cases[i:i+max_concurrent_requests]
+                with ThreadPoolExecutor(max_workers=max_concurrent_requests) as executor:
+                    futures = [executor.submit(process_row, row, config, fetch) for row in batch]
+                    for future in futures:
+                        result = future.result()
+                        results.append(result)
+                        if result["has_diff"]:
+                            diff_count += 1
+                            logger.info("%s: %s. %d diffs found. Row %d of %d", "-".join(str(result[p["csv_column"]]) for p in config["param_mapping"]), result["diff"], diff_count, row_count, rows_to_run)
+                        else:
+                            logger.info("%s: No diff, has_data=%s. %d diffs found. Row %d of %d", "-".join(str(result[p["csv_column"]]) for p in config["param_mapping"]), result["has_data"], diff_count, row_count, rows_to_run)
+                        row_count += 1
+                        if row_count % 1000 == 0:
+                            api_diff_helpers.save_to_excel(results, args.output)
+                            logger.info("Saved intermediate results. %d diffs found. Row %d of %d", diff_count, row_count, rows_to_run)
         except KeyboardInterrupt:
             logger.info("Program interrupted by user.")
     else:

@@ -49,6 +49,7 @@ python api_diff.py --config config/api_diff_config_SAMPLE.yaml --output my_resul
      - Request method (optional, default GET) for old_api and new_api
      - Authentication headers (optional)
      - Rate limiting settings
+     - Max concurrent requests (optional, default 1)
      - CSV file path (relative to config directory) containing test cases
      - Parameter configurations with column mappings
 
