@@ -113,9 +113,10 @@ def main() -> None:
                 delimiter = ','
             reader = csv.DictReader(f, delimiter=delimiter)
             test_cases = list(reader)
-        total_diffs_to_run = len(test_cases)
-        logger.info("Total test cases: %d", total_diffs_to_run)
+        rows_to_run = len(test_cases)
+        logger.info("Number of rows to run: %d", rows_to_run)
 
+        row_count = 0
         diff_count = 0
         for row in test_cases:
             api_params: dict[str, Any] = {
@@ -148,62 +149,17 @@ def main() -> None:
             results.append(result)
             if diff:
                 diff_count += 1
-                if diff_count % 1000 == 0:
-                    api_diff_helpers.save_to_excel(results, args.output)
-                    logger.info("Saved intermediate results after %d diffs of %d", diff_count, total_diffs_to_run)
-            if diff:
-                logger.info("%s: %s", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), diff)
+                logger.info("%s: %s. %d diffs found. Row %d of %d", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), diff, diff_count, row_count, rows_to_run)
             else:
-                logger.info("%s: No diff, has_data=%s", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), result["has_data"])
+                logger.info("%s: No diff, has_data=%s. %d diffs found. Row %d of %d", "-".join(str(row[p["csv_column"]]) for p in config["param_mapping"]), result["has_data"], diff_count, row_count, rows_to_run)
+            if row_count % 1000 == 0:
+                api_diff_helpers.save_to_excel(results, args.output)
+                logger.info("Saved intermediate results. %d diffs found. Row %d of %d", diff_count, row_count, rows_to_run)
+            row_count += 1
     else:
-        # Legacy permutation mode
-        param_lists = build_param_lists(config, Path(args.config))
+        raise ValueError("csv_file was not found in the config file")
 
-        total_diffs_to_run = 1
-        for lst in param_lists:
-            total_diffs_to_run *= len(lst)
-        logger.info("Total number of diffs to run: %d", total_diffs_to_run)
-
-        diff_count = 0
-        for combo in itertools.product(*param_lists):
-            api_params: dict[str, Any] = {
-                p["request_param"]: v
-                for p, v in zip(config["param_mapping"], combo, strict=True)
-            }
-            old_method = config["old_api"].get("request_method", "GET")
-            new_method = config["new_api"].get("request_method", "GET")
-            old: dict[str, Any] = fetch(
-                config["old_api"]["url"],
-                method=old_method,
-                params=api_params,
-                headers=config["old_api"]["headers"]
-            )
-            new: dict[str, Any] = fetch(
-                config["new_api"]["url"],
-                method=new_method,
-                params=api_params,
-                headers=config["new_api"]["headers"]
-            )
-            logger.debug("Old: %s", old)
-            logger.debug("New: %s", new)
-            diff = DeepDiff(old, new, ignore_order=True)
-            result: dict[str, Any] = {
-                p["csv_column"]: v for p, v in zip(config["param_mapping"], combo, strict=True)
-            }
-            result["has_diff"] = bool(diff)
-            result["has_data"] = not is_empty_json(old) or not is_empty_json(new)
-            result["diff"] = str(diff) if diff else ""
-            results.append(result)
-            if diff:
-                diff_count += 1
-                if diff_count % 1000 == 0:
-                    api_diff_helpers.save_to_excel(results, args.output)
-                    logger.info("Saved intermediate results after %d diffs of %d", diff_count, total_diffs_to_run)
-            if diff:
-                logger.info("%s: %s", "-".join(str(v) for v in combo), diff)
-            else:
-                logger.info("%s: No diff, has_data=%s", "-".join(str(v) for v in combo), result["has_data"])
-
+    logger.info("Exiting. Diff %d of %d", diff_count, rows_to_run)
     api_diff_helpers.save_to_excel(results, args.output)
 
 
