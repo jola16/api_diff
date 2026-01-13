@@ -1,8 +1,8 @@
 """API Diff Script.
 
 This script compares API responses between two endpoints based on configurable parameters.
-It fetches data from old and new APIs, computes differences using DeepDiff,
-and saves the results to the specified Excel file.
+It fetches JSON data from old and new APIs, computes differences using DeepDiff, and saves the
+results to the specified Excel file.
 
 Helper functions are in api_diff_helpers.py.
 """
@@ -23,6 +23,23 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
+def is_empty_json(data: Any) -> bool:
+    """Check if data is empty JSON-like value."""
+    if data is None:
+        return True
+    if isinstance(data, dict) and not data:
+        return True
+    if isinstance(data, list) and not data:
+        return True
+    if isinstance(data, str) and not data:
+        return True
+    if isinstance(data, (int, float)) and data == 0:
+        return True
+    if isinstance(data, bool) and not data:
+        return True
+    return False
+
+
 class ArgumentParserWithHelp(argparse.ArgumentParser):
     """Argument parser that prints help on error."""
 
@@ -39,7 +56,7 @@ def build_param_lists(config: dict[str, Any], config_path: Path) -> list[list[st
         if "source" in p:
             source_path = config_path.parent / p["source"]
             lines = source_path.read_text(encoding="utf-8").splitlines()
-            param_lists.append([line.strip() for line in lines if line.strip()])
+            param_lists.append(list(dict.fromkeys([line.strip() for line in lines if line.strip()])))
         elif "values" in p:
             param_lists.append(p["values"])
         elif "value" in p:
@@ -77,39 +94,57 @@ def main() -> None:
 
     @sleep_and_retry
     @limits(calls=config["rate_limit_calls"], period=config["rate_limit_period"])
-    def fetch(base_url: str, headers: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
-        return api_diff_helpers.fetch(base_url, headers, params)
+    def fetch(base_url: str, *, method: str = "GET", params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+        return api_diff_helpers.fetch(base_url, method=method, params=params, headers=headers)
 
     results: list[dict[str, Any]] = []
 
     param_lists = build_param_lists(config, Path(args.config))
 
+    total_diffs_to_run = 1
+    for lst in param_lists:
+        total_diffs_to_run *= len(lst)
+    logger.info("Total number of diffs to run: %d", total_diffs_to_run)
+
+    diff_count = 0
     for combo in itertools.product(*param_lists):
         api_params: dict[str, Any] = {
             p.get("api_name", p["name"]): v
             for p, v in zip(config["param_config"], combo, strict=True)
         }
+        old_method = config["old_api"].get("request_method", "GET")
+        new_method = config["new_api"].get("request_method", "GET")
         old: dict[str, Any] = fetch(
             config["old_api"]["url"],
-            config["old_api"]["headers"],
-            api_params
+            method=old_method,
+            params=api_params,
+            headers=config["old_api"]["headers"]
         )
         new: dict[str, Any] = fetch(
             config["new_api"]["url"],
-            config["new_api"]["headers"],
-            api_params
+            method=new_method,
+            params=api_params,
+            headers=config["new_api"]["headers"]
         )
+        logger.debug("Old: %s", old)
+        logger.debug("New: %s", new)
         diff = DeepDiff(old, new, ignore_order=True)
         result: dict[str, Any] = {
             p["name"]: v for p, v in zip(config["param_config"], combo, strict=True)
         }
         result["has_diff"] = bool(diff)
+        result["has_data"] = not is_empty_json(old) or not is_empty_json(new)
         result["diff"] = str(diff) if diff else ""
         results.append(result)
         if diff:
+            diff_count += 1
+            if diff_count % 1000 == 0:
+                api_diff_helpers.save_to_excel(results, args.output)
+                logger.info("Saved intermediate results after %d diffs of %d", diff_count, total_diffs_to_run)
+        if diff:
             logger.info("%s: %s", "-".join(str(v) for v in combo), diff)
         else:
-            logger.info("%s: No diff", "-".join(str(v) for v in combo))
+            logger.info("%s: No diff, has_data=%s", "-".join(str(v) for v in combo), result["has_data"])
 
     api_diff_helpers.save_to_excel(results, args.output)
 

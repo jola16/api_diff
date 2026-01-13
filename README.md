@@ -17,6 +17,8 @@ A Python script to compare API responses between two endpoints based on configur
 
 ## Usage
 
+**Note:** This script currently only supports APIs that return JSON responses.
+
 Run the script with a configuration file:
 
 ```bash
@@ -43,10 +45,11 @@ python api_diff.py --config config/api_diff_config_SAMPLE.yaml --output my_resul
    ```
 
 2. Edit `config/api_diff_config.yaml` with your actual:
-   - API endpoints (old and new)
-   - Authentication headers
-   - Rate limiting settings
-   - Parameter configurations (from files, values, or single values)
+    - API endpoints (old and new)
+    - Request method (optional, default GET) for old_api and new_api
+    - Authentication headers (optional)
+    - Rate limiting settings
+    - Parameter configurations (from files, values, or single values)
 
 **Note:** Config files in `config/` are gitignored (except the SAMPLE file) to protect sensitive data.
 

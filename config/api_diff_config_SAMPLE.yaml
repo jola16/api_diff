@@ -1,6 +1,7 @@
 old_api:
-  url: "https://sample-api.example.com/old-endpoint"
-  headers:
+   request_method: 'POST'
+   url: "https://sample-api.example.com/old-endpoint"
+   headers:
     Authorization: "Bearer sample-token-123"
 
 new_api:

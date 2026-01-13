@@ -54,12 +54,37 @@ def save_to_excel(results: list[dict[str, Any]], filename: str = "api_diff_resul
     logger.info("Saved results to %s", filename)
 
 
-def fetch(base_url: str, headers: dict[str, str], params: dict[str, Any]) -> dict[str, Any]:
-    """Fetch data from API for given base URL and parameters."""
+def fetch(
+    base_url: str,
+    *,
+    method: str = "GET",
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Fetch data from API.
+
+    Args:
+        base_url: The base URL of the API endpoint.
+        method: HTTP method to use (default: "GET").
+        params: Query parameters for GET or JSON body for other methods (default: None).
+        headers: HTTP headers to include (default: None).
+
+    Returns:
+        The JSON response from the API.
+    """
+    if params is None:
+        params = {}
+    if headers is None:
+        headers = {}
     try:
-        response: requests.Response = requests.get(
-            base_url, headers=headers, params=params, timeout=10
-        )
+        if method.upper() == "GET":
+            response: requests.Response = requests.get(
+                base_url, headers=headers, params=params, timeout=10
+            )
+        else:
+            response: requests.Response = requests.request(
+                method.upper(), base_url, headers=headers, json=params, timeout=10
+            )
         logger.debug("Fetching %s with params %s", base_url, params)
         status_phrase = HTTPStatus(response.status_code).phrase
         logger.debug("Status: %s %s", response.status_code, status_phrase)
